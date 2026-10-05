@@ -26,7 +26,7 @@ try {
     $updatedContent | Set-Content -Path 'pubspec.yaml' -Encoding UTF8
 
     $buildTime = [int]([DateTimeOffset]::Now.ToUnixTimeSeconds())
-    $customVersionName = "$versionName.lemontea"
+    $customVersionName = "$versionName-fullscreen-fix.1"
 
     $data = @{
         'pili.name' = $customVersionName
