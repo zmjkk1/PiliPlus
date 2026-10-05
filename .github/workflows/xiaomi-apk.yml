@@ -1,0 +1,82 @@
+name: Build Xiaomi fullscreen fix
+
+on:
+  push:
+    branches:
+      - fix/xiaomi-fullscreen-resume
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xiaomi-fullscreen-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Test and build Android arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            android/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply project Flutter patches
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Format changed Dart files
+        run: dart format lib/main.dart lib/plugin/pl_player/utils/fullscreen.dart test/fullscreen_restore_test.dart
+
+      - name: Run fullscreen and download regression tests
+        run: flutter test --no-pub test/fullscreen_restore_test.dart test/thread_ripper_test.dart test/thread_ripper_auto_test.dart test/video_utils_test.dart
+
+      - name: Prepare build metadata
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Build signed arm64 APK
+        shell: bash
+        run: |
+          test -f android/app/key.jks
+          test -f android/key.properties
+          flutter build apk --release --split-per-abi --target-platform android-arm64 --build-name=2.1.5-xiaomi-fix --dart-define-from-file=pili_release.json --no-pub
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk PiliPlus-2.1.5-xiaomi-fullscreen-fix-arm64-v8a.apk
+
+      - name: Verify APK signature and checksum
+        shell: bash
+        run: |
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$build_tools/apksigner" verify --verbose --print-certs PiliPlus-2.1.5-xiaomi-fullscreen-fix-arm64-v8a.apk | tee apk-signature.txt
+          sha256sum PiliPlus-2.1.5-xiaomi-fullscreen-fix-arm64-v8a.apk | tee SHA256SUMS.txt
+          cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: PiliPlus-Xiaomi-fullscreen-fix-arm64
+          path: |
+            PiliPlus-2.1.5-xiaomi-fullscreen-fix-arm64-v8a.apk
+            apk-signature.txt
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
